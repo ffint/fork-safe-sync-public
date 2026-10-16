@@ -1,0 +1,81 @@
+name: Guarded Public Fork Updates
+on:
+  push:
+    paths:
+      - .github/workflows/guarded-sync.yml
+      - scripts/sync.py
+      - tests/test_sync.py
+  schedule:
+    - cron: '37 19 * * *'
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: guarded-archives
+  cancel-in-progress: false
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Check out controller source
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Run offline regression tests
+        run: python3 tests/test_sync.py
+  prerequisites:
+    needs: verify
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    outputs:
+      ready: ${{ steps.token.outputs.ready }}
+    steps:
+      - id: token
+        env:
+          TOKEN: ${{ secrets.FORK_SYNC_TOKEN }}
+        run: |
+          if [ -z "$TOKEN" ]; then
+            echo 'ready=false' >> "$GITHUB_OUTPUT"
+            echo '::notice title=SYNC SKIPPED::Set FORK_SYNC_TOKEN to activate updates. No forks modified.'
+          else
+            echo 'ready=true' >> "$GITHUB_OUTPUT"
+          fi
+  synchronize:
+    needs: [verify, prerequisites]
+    if: needs.prerequisites.outputs.ready == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - {repo: ARTEX, upstream: mhtsec/ARTEX, id: 1409787646, initial: 5c0dbd4bec940f3c0faf20705a56d879b57d3dfe}
+          - {repo: strix, upstream: usestrix/strix, id: 1032808806, initial: 4695290682900eeedf4819a0336976d56dc028e0}
+          - {repo: Seep-Reverse-Lab, upstream: angusdevgo/Seep-Reverse-Lab, id: 1383979298, initial: 78cd4d787dc8ffce5c67b524499d5f9504fa129b}
+          - {repo: rea, upstream: morluto/rea, id: 1209966933, initial: 8c96baab80dc258d31ca1632d761fffb11dbaaae}
+          - {repo: apk-reverse, upstream: zzusec/apk-reverse, id: 1422047129, initial: 1b94651b1e3c4479336406b8b5c06d4c1fd7082e}
+    steps:
+      - name: Check out verified controller
+        uses: actions/checkout@v4
+        with:
+          path: controller
+          persist-credentials: false
+      - name: Check out fork
+        uses: actions/checkout@v4
+        with:
+          repository: ffint/${{ matrix.repo }}
+          token: ${{ secrets.FORK_SYNC_TOKEN }}
+          path: fork
+          fetch-depth: 1
+          persist-credentials: true
+      - name: Refuse destructive updates
+        working-directory: fork
+        env:
+          GH_TOKEN: ${{ secrets.FORK_SYNC_TOKEN }}
+          FORK_REPOSITORY: ffint/${{ matrix.repo }}
+          UPSTREAM: ${{ matrix.upstream }}
+          UPSTREAM_ID: ${{ matrix.id }}
+          INITIAL_SHA: ${{ matrix.initial }}
+        run: python3 ../controller/scripts/sync.py
