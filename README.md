@@ -18,6 +18,6 @@ The controller does not execute source code from upstream. Do not enable Actions
 
 These checks are heuristics, not a promise that accepted source is harmless.
 
-Schedule: 19:37 UTC daily (03:37 Beijing / 04:37 Tokyo). Scheduled workflows in inactive public repos can be disabled by GitHub after 60 days. Standard GitHub-hosted Actions runners are free in public repositories under current GitHub rules, but policy can change.
+Schedule: 19:37 UTC daily (03:37 Beijing / 04:37 Tokyo). GitHub can delay or skip scheduled runs during load, so this is not a hard real-time guarantee. The controller also makes a harmless maintenance commit after 35 days of inactivity to avoid GitHub's 60-day scheduled-workflow shutdown. This maintenance job requires GitHub Actions GITHUB_TOKEN Contents: write for this controller only. Standard GitHub-hosted Actions runners in public repos are free under current rules, but GitHub's rules may change.
 
 This replaces the private controller ffint/fork-safe-sync, whose schedule has been retired to avoid private Actions minutes.

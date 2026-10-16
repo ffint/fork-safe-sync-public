@@ -42,6 +42,33 @@ jobs:
           else
             echo 'ready=true' >> "$GITHUB_OUTPUT"
           fi
+  keepalive:
+    needs: verify
+    if: github.event_name == 'schedule'
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout maintenance controller
+        uses: actions/checkout@v4
+      - name: Keep scheduled workflows active every 35 days
+        shell: bash
+        run: |
+          set -euo pipefail
+          now=$(date +%s)
+          last=$(git log -1 --format=%ct)
+          if (( now - last < 35 * 86400 )); then
+            echo "Controller already active; no maintenance commit needed."
+            exit 0
+          fi
+          mkdir -p .maintenance
+          date -u +%Y-%m-%dT%H:%M:%SZ > .maintenance/heartbeat.txt
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add .maintenance/heartbeat.txt
+          git commit -m "chore: maintain recurring archive schedule"
+          git push origin HEAD:main
   synchronize:
     needs: [verify, prerequisites]
     if: needs.prerequisites.outputs.ready == 'true'
