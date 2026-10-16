@@ -70,7 +70,7 @@ jobs:
           path: fork
           fetch-depth: 1
           persist-credentials: true
-      - name: Refuse destructive updates
+      - name: Archive upstream latest and update safe branch if checks pass
         working-directory: fork
         env:
           GH_TOKEN: ${{ secrets.FORK_SYNC_TOKEN }}

@@ -6,6 +6,7 @@ import os
 import tempfile
 import importlib.util
 import subprocess
+from contextlib import redirect_stdout
 from pathlib import Path
 
 script = Path(__file__).resolve().parents[1] / 'scripts' / 'sync.py'
@@ -59,37 +60,43 @@ with tempfile.TemporaryDirectory() as d:
             a[a.index('https://github.com/demo/source.git')]=str(upstream)
         return original_git(*a,**kwargs)
     sync.git=local_git
+    def archived(sha):
+        assert git('rev-parse','refs/tags/upstream-snapshots/'+sha[:16],cwd=bare)==sha
+        assert git('rev-parse','refs/heads/upstream-latest-unreviewed',cwd=bare)==sha
+    def needs_review(fragment):
+        with io.StringIO() as log, redirect_stdout(log):
+            sync.run()
+            output=log.getvalue()
+        assert 'REVIEW_REQUIRED' in output and fragment in output, output
     sync.run()
+    archived(good)
     assert git('rev-parse','refs/heads/safe-sync',cwd=bare)==good
     assert git('rev-parse','refs/heads/main',cwd=bare)==initial
     sync.run()
     (upstream/'src'/'new.py').unlink()
     git('add','.',cwd=upstream)
     git('commit','-m','delete a file',cwd=upstream)
-    try:
-        sync.run()
-        raise AssertionError('Deletion should have been blocked')
-    except sync.Block as ex:
-        assert 'deletion' in str(ex).lower()
+    deleted=git('rev-parse','HEAD',cwd=upstream)
+    needs_review('deletion')
+    archived(deleted)
     assert git('rev-parse','refs/heads/safe-sync',cwd=bare)==good
+    assert git('rev-parse','refs/tags/upstream-snapshots/'+good[:16],cwd=bare)==good
     git('reset','--hard',good,cwd=upstream)
     (upstream/'LICENSE').write_text('Changed license\n')
     git('add','.',cwd=upstream)
     git('commit','-m','change license',cwd=upstream)
-    try:
-        sync.run()
-        raise AssertionError('Protected file change should have been blocked')
-    except sync.Block as ex:
-        assert 'protected' in str(ex).lower()
+    protected=git('rev-parse','HEAD',cwd=upstream)
+    needs_review('Protected')
+    archived(protected)
+    assert git('rev-parse','refs/heads/safe-sync',cwd=bare)==good
     git('reset','--hard',initial,cwd=upstream)
     (upstream/'src'/'a.py').write_text('rewritten\n')
     git('add','.',cwd=upstream)
     git('commit','-m','rewrite history',cwd=upstream)
-    try:
-        sync.run()
-        raise AssertionError('History rewrite should have been blocked')
-    except sync.Block as ex:
-        assert 'history' in str(ex).lower()
+    rewrite=git('rev-parse','HEAD',cwd=upstream)
+    needs_review('history')
+    archived(rewrite)
+    assert git('rev-parse','refs/tags/upstream-snapshots/'+protected[:16],cwd=bare)==protected
     assert git('rev-parse','refs/heads/main',cwd=bare)==initial
     assert git('rev-parse','refs/heads/safe-sync',cwd=bare)==good
 
@@ -116,4 +123,4 @@ with tempfile.TemporaryDirectory() as d:
     git('add','.',cwd=wd)
     git('commit','-m','tab in filename',cwd=wd)
     assert len(sync.diff_files(base,git('rev-parse','HEAD',cwd=wd)))==1
-print('PASS: normal sync, no-change, deletion, protected file, history rewrite, symlink, filename parsing, main intact')
+print('PASS: scheduled-source-archive safety: latest snapshots, forced-upstream-rewind pointer, successful safe sync, deletion and protected changes reviewed, main intact, symlink, filename parsing')

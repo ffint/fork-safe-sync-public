@@ -1,6 +1,6 @@
 # Guarded Source Archive Synchronization
 
-Public controller for five public source archives in the ffint account. Existing fork main branches always remain unchanged, and each fork retains an archive/original-20261016 snapshot. Only the safe-sync branches are eligible for guarded updates.
+Public controller for five public source archives in the ffint account. Existing fork main branches always remain unchanged, and each fork retains an archive/original-20261016 snapshot. The latest upstream commit is archived on every daily run, independent of safe-sync review.
 
 ## Activation
 
@@ -10,7 +10,13 @@ After adding the secret, open Actions > Guarded Public Fork Updates > Run workfl
 
 ## Checks
 
-For each fork, it requires the exact upstream GitHub repository ID and main branch; rejects non-fast-forward changes, removals, renames, protected files (.github, licensing, gitlinks, etc.), binary and symlink updates, over 100 commits, over 120 changed files, and disproportionately high deletions. Every accepted update first pushes a backup tag safe-sync-backup/<previous SHA prefix> without force. Then and only then it fast-forwards safe-sync. It does not run upstream project code. This is an intentionally strict heuristic, not a security guarantee. Review failed runs before manually approving legitimate major refactors.
+Each run verifies the exact upstream GitHub repository ID before accessing the code. After fetching the current upstream main commit, it first creates a **permanent immutable** tag `upstream-snapshots/<commit-prefix>` in the fork. A separate branch, `upstream-latest-unreviewed`, always points to the newest captured upstream source. This single branch may be changed using force-with-lease if upstream rewrites history; immutable tags protect every previous capture. Both contain **unreviewed source code**, including any upstream deletions. Neither ever modifies the fork's `main`, `archive/original-20261016`, or `safe-sync` branches.
+
+Independently, a conservative gate rejects non-fast-forward changes, removals, renames, protected files (.github, licensing, gitlinks, etc.), binary and symlink updates, over 100 commits, over 120 changed files, and disproportionately high deletions. A rejected update is shown as **REVIEW_REQUIRED**, *not* as a failed run: upstream latest is still archived, while `safe-sync` stays unchanged. An operational error (bad token, network, Git push failure) still fails the job. Every accepted safe-sync update gets its own rollback tag `safe-sync-backup/<previous SHA prefix>` and is fast-forwarded without force.
+
+The controller does not execute source code from upstream. Do not enable Actions on the five source-code forks unless you have separately reviewed their workflows: branches/tags carrying untrusted upstream workflow files could otherwise trigger code execution. Only the controller needs Actions.
+
+These checks are heuristics, not a promise that accepted source is harmless.
 
 Schedule: 19:37 UTC daily (03:37 Beijing / 04:37 Tokyo). Scheduled workflows in inactive public repos can be disabled by GitHub after 60 days. Standard GitHub-hosted Actions runners are free in public repositories under current GitHub rules, but policy can change.
 
