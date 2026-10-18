@@ -5,6 +5,7 @@ import os
 import subprocess
 import sys
 import urllib.request
+import urllib.error
 
 class Block(Exception):
     pass
@@ -123,6 +124,18 @@ def report(repo, upstream, new, tag, outcome, detail):
             handle.write('- Safe sync branch: ' + ('unchanged; review needed' if outcome == 'REVIEW_REQUIRED' else outcome) + '\n')
             handle.write('- Reason: ' + detail.replace('\n', ' ') + '\n\n')
 
+def report_unavailable(repo, upstream, reason):
+    message = repo + ': upstream ' + upstream + ' is currently unavailable (' + reason + '); existing snapshots and safe-sync remain unchanged'
+    print('SOURCE_UNAVAILABLE:', message)
+    print('::warning title=Upstream source unavailable::' + message)
+    summary_path = os.getenv('GITHUB_STEP_SUMMARY')
+    if summary_path:
+        with open(summary_path, 'a', encoding='utf-8') as out:
+            out.write('### ' + repo + ': SOURCE_UNAVAILABLE\n\n')
+            out.write('- Upstream: ' + upstream + '\n')
+            out.write('- Status: unavailable (possibly deleted, private or renamed); no new snapshot possible\n')
+            out.write('- Existing main, archive, safe-sync and historical tags preserved\n\n')
+
 def run():
     repo = os.environ['FORK_REPOSITORY']
     upstream = os.environ['UPSTREAM']
@@ -136,8 +149,14 @@ def run():
             'User-Agent': 'ffint-guarded-fork-sync',
         },
     )
-    with urllib.request.urlopen(request, timeout=20) as response:
-        data = json.load(response)
+    try:
+        with urllib.request.urlopen(request, timeout=20) as response:
+            data = json.load(response)
+    except urllib.error.HTTPError as exc:
+        if exc.code == 404:
+            report_unavailable(repo, upstream, 'HTTP 404')
+            return
+        raise
     if (data['id'] != upstream_id or
         data['full_name'].casefold() != upstream.casefold() or
         data['default_branch'] != 'main' or data['archived']):
@@ -195,5 +214,16 @@ if __name__ == '__main__':
     try:
         run()
     except Exception as exc:
-        print('SYNC_ERROR:', str(exc), file=sys.stderr)
+        error = str(exc)
+        print('SYNC_ERROR:', error, file=sys.stderr)
+        if 'refusing to allow a Personal Access Token to create or update workflow' in error:
+            print('::error title=Workflows permission missing::Your GitHub fine-grained PAT needs repository Workflows: Read and write to preserve upstream commits containing changed .github/workflows files. Limit this permission to the affected forks.')
+            print('ACTION_NEEDED: Edit the existing fine-grained PAT; add Workflows: Read and write for the affected repositories, then re-run the controller. Without it, new upstream commits cannot be archived as Git refs.')
+        summary_path = os.getenv('GITHUB_STEP_SUMMARY')
+        if summary_path:
+            with open(summary_path, 'a', encoding='utf-8') as out:
+                out.write('### SYNC_ERROR\n\n')
+                out.write('- Error: ' + error.replace('\n', ' ').replace('|', '/')[:700] + '\n')
+                out.write('- The original main and archived base are unchanged\n')
+                out.write('- Missing Workflows permission on a token must not be treated as a successful backup\n\n')
         sys.exit(1)

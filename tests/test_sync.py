@@ -6,6 +6,7 @@ import os
 import tempfile
 import importlib.util
 import subprocess
+import urllib.error
 from contextlib import redirect_stdout
 from pathlib import Path
 
@@ -99,6 +100,15 @@ with tempfile.TemporaryDirectory() as d:
     assert git('rev-parse','refs/tags/upstream-snapshots/'+protected[:16],cwd=bare)==protected
     assert git('rev-parse','refs/heads/main',cwd=bare)==initial
     assert git('rev-parse','refs/heads/safe-sync',cwd=bare)==good
+    def missing_repo(*args, **kwargs):
+        raise urllib.error.HTTPError('https://api.github.com/repos/demo/source', 404, 'Not Found', {}, None)
+    sync.urllib.request.urlopen = missing_repo
+    with io.StringIO() as log, redirect_stdout(log):
+        sync.run()
+        status = log.getvalue()
+    assert 'SOURCE_UNAVAILABLE' in status and 'existing snapshots and safe-sync remain unchanged' in status
+    assert git('rev-parse','refs/heads/main',cwd=bare)==initial
+    assert git('rev-parse','refs/heads/safe-sync',cwd=bare)==good
 
 with tempfile.TemporaryDirectory() as d:
     wd=Path(d)
@@ -123,4 +133,4 @@ with tempfile.TemporaryDirectory() as d:
     git('add','.',cwd=wd)
     git('commit','-m','tab in filename',cwd=wd)
     assert len(sync.diff_files(base,git('rev-parse','HEAD',cwd=wd)))==1
-print('PASS: scheduled-source-archive safety: latest snapshots, forced-upstream-rewind pointer, successful safe sync, deletion and protected changes reviewed, main intact, symlink, filename parsing')
+print('PASS: unavailable-upstream handling and scheduled-source-archive safety: latest snapshots, forced-upstream-rewind pointer, successful safe sync, deletion and protected changes reviewed, main intact, symlink, filename parsing')

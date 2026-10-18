@@ -21,3 +21,9 @@ These checks are heuristics, not a promise that accepted source is harmless.
 Schedule: 19:37 UTC daily (03:37 Beijing / 04:37 Tokyo). GitHub can delay or skip scheduled runs during load, so this is not a hard real-time guarantee. The controller also makes a harmless maintenance commit after 35 days of inactivity to avoid GitHub's 60-day scheduled-workflow shutdown. This maintenance job requires GitHub Actions GITHUB_TOKEN Contents: write for this controller only. Standard GitHub-hosted Actions runners in public repos are free under current rules, but GitHub's rules may change.
 
 This replaces the private controller ffint/fork-safe-sync, whose schedule has been retired to avoid private Actions minutes.
+
+## Handling unavailable sources and permission failures
+
+If an upstream repository returns 404, the scheduled job emits SOURCE_UNAVAILABLE as a GitHub Actions warning rather than a false system failure, and leaves all historical code untouched. It retries daily in case the upstream becomes available again. A missing upstream cannot produce new source snapshots; forks or lookalike mirrors must never be substituted without validating the source identity.
+
+If GitHub rejects a snapshot branch/tag push that introduces `.github/workflows` changes, a fine-grained PAT with Contents write alone is insufficient. GitHub may require **Workflows: Read and write** on the affected repository (REA, Seep-Reverse-Lab). The controller intentionally continues to mark the job as SYNC_ERROR until archive creation really succeeds; the original code remains unaffected. Grant workflow permission only to relevant repositories where possible, and keep GitHub Actions disabled on source-code forks to avoid inadvertently running untrusted upstream workflows.
